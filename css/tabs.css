@@ -1,0 +1,46 @@
+.tab-list {
+	border: 1px solid #aaa;
+	overflow: hidden;
+	padding: 20px;
+	margin: 0 0 10px;
+	height: 1%;
+}
+.tab-list p {
+	margin: 0
+}
+.tab-list .tab {
+	background: #fff
+}
+ul.tabset {
+	position: relative;
+	list-style: none;
+	overflow: hidden;
+	margin: 0;
+	width: 100%;
+	padding: 0;
+}
+ul.tabset li {
+	margin: 0 10px 0 0;
+	float: left;
+}
+ul.tabset a {
+	color: #000;
+	float: left;
+	padding: 5px 10px;
+	background: #ddd;
+	text-decoration: none;
+}
+ul.tabset li.active a,
+ul.tabset a.active {
+	text-decoration: none;
+	background: #aaa !important;
+}
+ul.tabset a:hover {
+	text-decoration: none;
+	background: #cecece;
+}
+.js-hidden{
+	position: absolute !important;
+	top: -9999px !important;
+	left: -9999px !important;
+}

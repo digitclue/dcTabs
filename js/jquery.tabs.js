@@ -24,7 +24,7 @@ function initTabs() {
 /*
  * jQuery Tabs plugin
  */
-;(function(){
+;(function($, window){
 	function ContentTabs(options){
 		this.options = $.extend({
 			activeClass:'active',
@@ -42,6 +42,17 @@ function initTabs() {
 	}
 	ContentTabs.prototype = {
 		init: function(){
+			var tabStyleRule = '.'+this.options.hiddenClass;
+			this.tabStyleSheet = $('<style type="text/css">')[0];
+
+			tabStyleRule += '{position:absolute !important;left:-9999px !important;top:-9999px !important;display:block !important}';
+			if (this.tabStyleSheet.styleSheet) {
+				this.tabStyleSheet.styleSheet.cssText = tabStyleRule;
+			} else {
+				this.tabStyleSheet.appendChild(document.createTextNode(tabStyleRule));
+			}
+			$('head').append(this.tabStyleSheet);
+			
 			this.findElements();
 			this.attachEvents();
 
@@ -51,27 +62,33 @@ function initTabs() {
 			var self = this;
 			this.tabset = $(this.options.tabset);
 			this.tabLinks = this.tabset.find(this.options.tabLinks);
-			this.parents = this.tabLinks.parent();
+			
 			this.tabs = $();
 			this.busy = false;
-			this.fakeTimer;
+			this.timer = null;
 
 			this.tabLinks.each(function(){
-				var link = $(this);
-				var href = link.attr(self.options.attrib);
+				var link = $(this),
+					href = link.attr(self.options.attrib),
+					tab,
+					classOwner,
+					tabWidth,
+					parent;
+
 				href = href.substr(href.lastIndexOf('#'));
-				var tab = $(href);
+				tab = $(href);
 
 				if (tab.length){
 					self.tabs = self.tabs.add(tab);
+					parent = link.parent();
 					// find tab holder
 					if(!self.tabHolder) {
 						self.tabHolder = tab.parent();
 					}
 
 					// show only active tab
-					var classOwner = self.options.addToParent ? link.parent() : link;
-					if(classOwner.hasClass(self.options.activeClass) || (self.options.checkHash && location.hash === href)) {
+					classOwner = self.options.addToParent ? parent : link;
+					if (classOwner.hasClass(self.options.activeClass) || (self.options.checkHash && location.hash === href)) {
 						classOwner.addClass(self.options.activeClass);
 						tab.removeClass(self.options.hiddenClass).width('');
 
@@ -81,27 +98,30 @@ function initTabs() {
 							initial:true
 						});
 					} else {
-						var tabWidth = tab.width();
+						tabWidth = tab.width();
 						tab.width(tabWidth);
 						tab.addClass(self.options.hiddenClass);
 					}
 
 					link.data({
-						ctab:tab
+						ctab:tab,
+						cparent: parent
 					});
 				} else {
 					self.tabLinks = self.tabLinks.not(link);
 				}
 			});
+
+			this.parents = this.tabLinks.parent();
 		},
 		attachEvents: function(){
 			var self = this;
 
 			this.eventHandler = function(e){
+				var link = $(this),
+					classOwner = self.options.addToParent ? link.data('cparent') : link;
+
 				e.preventDefault();
-				var link = $(this);
-				if (self.busy) return;
-				var classOwner = self.options.addToParent ? link.parent() : link;
 
 				if (classOwner.hasClass(self.options.activeClass)){
 					if (self.options.collapsible){
@@ -110,32 +130,41 @@ function initTabs() {
 				} else {
 					self.openTab(link);
 				}
-			}
+			};
 			this.resizeHandler = function(){
-				if (self.busy) return;
-				if (self.fakeTimer) clearTimeout(self.fakeTimer);
-				self.fakeTimer = setTimeout(function(){
-					self.tabHolder.css({position:'relative'});
-					var hiddenTabs = self.tabs.filter('.' + self.options.hiddenClass);
-					hiddenTabs.each(function(){
-						var tab = $(this).removeClass(self.options.hiddenClass).css({width:''});
-						self.tabsEffect[self.options.effect].destroy(tab);
-						var tabWidth = tab.width();
-						tab.width(tabWidth).addClass(self.options.hiddenClass);
-					});
-					self.tabHolder.css({position:''});
-				}, 100);
-			}
+				if (!self.busy){
+					if (self.timer) clearTimeout(self.timer);
+					self.timer = setTimeout(function(){
+						self.tabHolder.css({position:'relative'});
+
+						self.tabs.filter('.' + self.options.hiddenClass).each(function(){
+							var tab = $(this),
+								tabWidth;
+							tab.removeClass(self.options.hiddenClass).css({width:''});
+							if (self.tabsEffect[self.options.effect].destroy){
+								self.tabsEffect[self.options.effect].destroy(tab);
+							}
+							tabWidth = tab.width();
+							tab.width(tabWidth).addClass(self.options.hiddenClass);
+						});
+
+						self.tabHolder.css({position:''});
+					}, 100);
+				}
+			};
+
 			$(window).on('resize orientationchange load', this.resizeHandler);
 			this.tabLinks.on(this.options.event, this.eventHandler);
 		},
 		openTab: function(link){
 			var self = this;
-			this.busy = true;
-			this.closeTab(function(){
-				if (link && link.length){
-					self.makeCallback('animStart', true, link);
+
+			if (link && link.length){
+				this.closeTab(function(){
 					var tab = link.data('ctab');
+
+					self.makeCallback('animStart', true, link);
+
 					tab.css({width:''}).removeClass(self.options.hiddenClass);
 					self.refreshState(link);
 					self.tabsEffect[self.options.effect].switchState({
@@ -143,68 +172,71 @@ function initTabs() {
 						tab:tab,
 						complete: function(){
 							self.makeCallback('animEnd', true, link);
-							self.busy = false;
 						}
 					});
-				} else {
-					self.busy = false;
-				}
-			});
+				});
+			}
 		},
 		closeTab: function(callback){
-			var self = this;
-			this.busy = true;
+			var self = this,
+				activeLink,
+				openedTab,
+				tabWidth;
+
 			if (this.options.addToParent){
-				var activeLink = this.parents.filter('.' + this.options.activeClass).find(this.options.tabLinks);
+				activeLink = this.parents.filter('.' + this.options.activeClass).find(this.options.tabLinks);
 			} else {
-				var activeLink = this.tabLinks.filter('.' + this.options.activeClass);
+				activeLink = this.tabLinks.filter('.' + this.options.activeClass);
 			}
-			var openedTab = activeLink.data('ctab');
+
+			openedTab = activeLink.data('ctab');
+
 			if (openedTab && openedTab.length){
 				self.makeCallback('animStart', false, activeLink);
+				
+				tabWidth = openedTab.width();
+
 				this.tabsEffect[this.options.effect].switchState({
 					state:false,
 					tab:openedTab,
 					complete: function(){
-						var tabWidth = openedTab.width();
 						openedTab.width(tabWidth);
 						openedTab.addClass(self.options.hiddenClass);
 
 						self.makeCallback('animEnd', false, activeLink);
-						self.busy = false;
+
 						self.refreshState();
+
 						if (typeof callback === 'function'){
 							callback();
 						}
 					}
 				});
 			} else {
-				this.busy = false;
 				if (typeof callback === 'function'){
 					callback();
 				}
 			}
 		},
 		refreshState: function(link){
+			var classOwner;
+
 			(this.options.addToParent ? this.parents : this.tabLinks).removeClass(this.options.activeClass);
+
 			if (link && link.length){
-				if (this.options.addToParent){
-					link.parent().addClass(this.options.activeClass);
-				} else {
-					link.addClass(this.options.activeClass);
-				}
+				classOwner = this.options.addToParent ? link.data('cparent') : link;
+				classOwner.addClass(this.options.activeClass);
 			}
 		},
 		makeCallback: function(name){
 			if (typeof this.options[name] === 'function'){
-				var args = Array.prototype.slice.call(arguments);
-				args.shift();
+				var args = Array.prototype.slice.call(arguments, 1);
 				this.options[name].apply(this, args);
 			}
 		},
 		destroy: function(){
 			this.busy = true;
-			if (this.fakeTimer) clearTimeout(this.fakeTimer);
+			if (this.timer) clearTimeout(this.timer);
 			$(window).off('resize orientationchange', this.resizeHandler);
 			this.tabLinks.off(this.options.event, this.eventHandler);
 			(this.options.addToParent ? this.parents : this.tabLinks).removeClass(this.options.activeClass);
@@ -212,7 +244,8 @@ function initTabs() {
 			if (this.tabsEffect[this.options.effect].destroy){
 				this.tabsEffect[this.options.effect].destroy(this.tabs);
 			}
-			this.tabLinks.removeData('ctab');
+			this.tabStyleSheet.remove();
+			this.tabLinks.removeData('ctab cparent');
 			this.tabset.removeData('ContentTabs');
 		},
 		tabsEffect: {
@@ -270,10 +303,13 @@ function initTabs() {
 				}
 			}
 		}
-	}
+	};
 	$.fn.contentTabs = function(options){
 		return this.each(function(){
-			$(this).data('ContentTabs', new ContentTabs($.extend({tabset:this}, options)));
+			var elem = jQuery(this);
+			if (!elem.data('ContentTabs')){
+				$(this).data('ContentTabs', new ContentTabs($.extend({tabset:this}, options)));
+			}
 		});
-	}
-})(jQuery);
+	};
+})(jQuery, window);
